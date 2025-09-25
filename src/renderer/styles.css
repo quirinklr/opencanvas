@@ -96,6 +96,7 @@ button.primary:hover {
   position: relative;
   display: inline-block;
   transform-origin: top left;
+  border: 1px solid #404040;
   background-image: linear-gradient(45deg, #2f2f2f 25%, transparent 25%, transparent 75%, #2f2f2f 75%, #2f2f2f),
     linear-gradient(45deg, #252525 25%, transparent 25%, transparent 75%, #252525 75%, #252525);
   background-size: 32px 32px;

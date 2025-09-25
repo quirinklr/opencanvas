@@ -1,6 +1,8 @@
 import { createCanvasController } from './canvas.js';
 import { createModalController } from './modal.js';
 
+const DEFAULT_FILE_NAME = 'untitled.ocp';
+
 function createNotifier() {
   const element = document.createElement('div');
   element.className = 'alert';
@@ -31,6 +33,14 @@ function createNotifier() {
   };
 }
 
+function createDocumentMeta(existing = {}) {
+  const now = new Date().toISOString();
+  const createdAt = typeof existing.createdAt === 'string' ? existing.createdAt : now;
+  const modifiedAt = typeof existing.modifiedAt === 'string' ? existing.modifiedAt : now;
+  const app = typeof existing.app === 'string' ? existing.app : 'OpenCanvas';
+  return { createdAt, modifiedAt, app };
+}
+
 export function setupUI() {
   const canvasElement = document.getElementById('canvas');
   const fileNameLabel = document.getElementById('file-name');
@@ -43,18 +53,22 @@ export function setupUI() {
   const canvasController = createCanvasController(canvasElement);
   const modalController = createModalController();
   const notifier = createNotifier();
+  const api = window.api;
+
+  if (!api) {
+    notifier.error('Bridge not available. Please restart the application.');
+    throw new Error('window.api is undefined');
+  }
 
   const state = {
-    fileName: 'untitled.ocp',
+    fileName: 'No project',
     filePath: null,
     width: 0,
     height: 0,
-    meta: {
-      createdAt: new Date().toISOString(),
-      modifiedAt: new Date().toISOString()
-    },
+    meta: createDocumentMeta(),
     zoomMode: 'fit',
-    busy: false
+    busy: false,
+    hasDocument: false
   };
 
   function setBusy(value) {
@@ -65,12 +79,13 @@ export function setupUI() {
   }
 
   function updateTitle() {
-    fileNameLabel.textContent = state.fileName;
-    document.title = `OpenCanvas - ${state.fileName}`;
+    const label = state.hasDocument ? state.fileName : 'No project';
+    fileNameLabel.textContent = label;
+    document.title = state.hasDocument ? `OpenCanvas - ${label}` : 'OpenCanvas';
   }
 
   function ensureDocumentExists() {
-    if (state.width > 0 && state.height > 0) {
+    if (state.hasDocument && state.width > 0 && state.height > 0) {
       return true;
     }
     notifier.error('Please create or open a document first.');
@@ -81,12 +96,13 @@ export function setupUI() {
     if (state.busy) return;
     setBusy(true);
     try {
-      const dimensions = await modalController.open({ width: state.width || 1920, height: state.height || 1080 });
+      const defaults = state.hasDocument ? { width: state.width, height: state.height } : { width: 1920, height: 1080 };
+      const dimensions = await modalController.open(defaults);
       if (!dimensions) {
         return;
       }
 
-      const response = await window.api.newDocument(dimensions.width, dimensions.height);
+      const response = await api.newDocument(dimensions.width, dimensions.height);
       const normalizedWidth = response.width;
       const normalizedHeight = response.height;
 
@@ -94,13 +110,11 @@ export function setupUI() {
       canvasController.clear();
       state.width = normalizedWidth;
       state.height = normalizedHeight;
-      state.meta = {
-        createdAt: new Date().toISOString(),
-        modifiedAt: new Date().toISOString()
-      };
-      state.fileName = response.fileName || 'untitled.ocp';
+      state.meta = createDocumentMeta();
+      state.fileName = response.fileName || DEFAULT_FILE_NAME;
       state.filePath = null;
       state.zoomMode = 'fit';
+      state.hasDocument = true;
       canvasController.fitToContainer();
       zoomSelect.value = 'fit';
       updateTitle();
@@ -117,7 +131,7 @@ export function setupUI() {
     if (state.busy) return;
     setBusy(true);
     try {
-      const result = await window.api.openOCP();
+      const result = await api.openOCP();
       if (!result || result.canceled) {
         if (result?.error) {
           notifier.error(result.error);
@@ -128,10 +142,11 @@ export function setupUI() {
       await canvasController.drawFromBase64(result.pngBase64);
       state.width = result.width;
       state.height = result.height;
-      state.meta = result.meta || state.meta;
-      state.fileName = result.fileName || 'untitled.ocp';
+      state.meta = createDocumentMeta(result.meta);
+      state.fileName = result.fileName || DEFAULT_FILE_NAME;
       state.filePath = result.filePath || null;
       state.zoomMode = 'fit';
+      state.hasDocument = true;
       zoomSelect.value = 'fit';
       canvasController.fitToContainer();
       updateTitle();
@@ -152,6 +167,10 @@ export function setupUI() {
     setBusy(true);
     try {
       const pngBase64 = canvasController.getPNGBase64();
+      state.meta = {
+        ...state.meta,
+        modifiedAt: new Date().toISOString()
+      };
       const payload = {
         width: state.width,
         height: state.height,
@@ -160,7 +179,7 @@ export function setupUI() {
         saveAs: Boolean(options.saveAs)
       };
 
-      const result = await window.api.saveOCP(payload);
+      const result = await api.saveOCP(payload);
       if (!result || result.canceled) {
         if (result?.error) {
           notifier.error(result.error);
@@ -170,10 +189,7 @@ export function setupUI() {
 
       state.filePath = result.filePath;
       state.fileName = result.fileName;
-      state.meta = {
-        ...state.meta,
-        modifiedAt: new Date().toISOString()
-      };
+      state.hasDocument = true;
       updateTitle();
       notifier.success(`Saved ${state.fileName}`);
     } catch (error) {
@@ -192,7 +208,7 @@ export function setupUI() {
     setBusy(true);
     try {
       const pngBase64 = canvasController.getPNGBase64();
-      const result = await window.api.exportPNG(pngBase64);
+      const result = await api.exportPNG(pngBase64);
       if (!result || result.canceled) {
         if (result?.error) {
           notifier.error(result.error);
@@ -235,33 +251,12 @@ export function setupUI() {
     }
   }
 
-  function handleMenuEvent(event) {
-    const detail = event.detail || {};
-    switch (detail.type) {
-      case 'new':
-        handleNewDocument();
-        break;
-      case 'open':
-        handleOpenDocument();
-        break;
-      case 'save':
-        handleSaveDocument({ saveAs: detail.saveAs });
-        break;
-      case 'export':
-        handleExportPNG();
-        break;
-      default:
-        break;
-    }
-  }
-
   newButton.addEventListener('click', handleNewDocument);
   openButton.addEventListener('click', handleOpenDocument);
   saveButton.addEventListener('click', () => handleSaveDocument({ saveAs: false }));
   exportButton.addEventListener('click', handleExportPNG);
   zoomSelect.addEventListener('change', handleZoomChange);
   window.addEventListener('resize', handleResize);
-  window.addEventListener('app-menu', handleMenuEvent);
 
   updateTitle();
   zoomSelect.value = 'fit';

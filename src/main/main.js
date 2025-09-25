@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
-const { createAppMenu } = require('./menu');
 const { encodeOCP, decodeOCP } = require('../shared/ocp');
 const { validateDimensions, validateSavePayload, ensurePNGBase64 } = require('../preload/schema');
 
@@ -47,13 +46,25 @@ async function createMainWindow() {
     }
   });
 
+  const template = [
+  {
+    label: "View",
+    submenu: [
+      { role: "reload" },
+      { role: "forcereload" },
+      { role: "toggledevtools" }
+    ]
+  }
+]
+
+const menu = Menu.buildFromTemplate(template)
+
+  Menu.setApplicationMenu(menu);
+
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   await mainWindow.loadFile(resolvePath('..', 'renderer', 'index.html'));
   setWindowTitle(DEFAULT_FILE_NAME);
-
-  const menu = createAppMenu(mainWindow);
-  Menu.setApplicationMenu(menu);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -87,7 +98,7 @@ function registerIpcHandlers() {
 
     try {
       const content = await fs.readFile(filePath, 'utf8');
-      decodeOCP(content);
+      const document = decodeOCP(content);
       currentFilePath = filePath;
       const fileName = path.basename(filePath);
       setWindowTitle(fileName);
@@ -95,7 +106,7 @@ function registerIpcHandlers() {
         canceled: false,
         filePath,
         fileName,
-        content
+        document
       };
     } catch (error) {
       dialog.showErrorBox(APP_NAME, `Could not open file: ${error.message}`);

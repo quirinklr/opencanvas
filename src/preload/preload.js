@@ -1,23 +1,93 @@
 const { contextBridge, ipcRenderer } = require('electron');
-const { validateDimensions, validateSavePayload, ensurePNGBase64 } = require('./schema');
-const { decodeOCP } = require('../shared/ocp');
 
+const MIN_SIZE = 1;
+const MAX_SIZE = 16384;
 const DEFAULT_FILE_NAME = 'untitled.ocp';
-const MENU_CHANNEL = 'app-menu';
 
-function dispatchMenuEvent(detail) {
-  try {
-    window.dispatchEvent(new CustomEvent(MENU_CHANNEL, { detail }));
-  } catch (error) {
-    console.error('Menu event dispatch failed', error);
+function toInteger(value, label) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    throw new Error(`${label} must be a number.`);
   }
+  const integer = Math.floor(number);
+  if (!Number.isInteger(integer)) {
+    throw new Error(`${label} must be an integer.`);
+  }
+  return integer;
 }
 
-ipcRenderer.on(MENU_CHANNEL, (_event, detail) => {
-  if (detail && typeof detail === 'object') {
-    dispatchMenuEvent(detail);
+function validateDimensions(width, height) {
+  const normalizedWidth = toInteger(width, 'Width');
+  const normalizedHeight = toInteger(height, 'Height');
+
+  if (normalizedWidth < MIN_SIZE || normalizedWidth > MAX_SIZE) {
+    throw new Error(`Width must be between ${MIN_SIZE} and ${MAX_SIZE}.`);
   }
-});
+  if (normalizedHeight < MIN_SIZE || normalizedHeight > MAX_SIZE) {
+    throw new Error(`Height must be between ${MIN_SIZE} and ${MAX_SIZE}.`);
+  }
+
+  return { width: normalizedWidth, height: normalizedHeight };
+}
+
+function decodeBase64(input) {
+  if (typeof globalThis.atob === 'function') {
+    return globalThis.atob(input);
+  }
+  if (globalThis.Buffer && typeof globalThis.Buffer.from === 'function') {
+    return globalThis.Buffer.from(input, 'base64').toString('binary');
+  }
+  throw new Error('Base64 decoder not available.');
+}
+
+function ensurePNGBase64(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('PNG data must not be empty.');
+  }
+
+  const base64 = value.replace(/\s/g, '');
+  try {
+    const binary = decodeBase64(base64);
+    if (!binary || binary.length === 0) {
+      throw new Error('PNG data is empty.');
+    }
+  } catch (_error) {
+    throw new Error('PNG data must be Base64 encoded.');
+  }
+
+  return base64;
+}
+
+function sanitizeMeta(meta = {}) {
+  if (meta === null || typeof meta !== 'object' || Array.isArray(meta)) {
+    return {};
+  }
+
+  const result = {};
+  if (typeof meta.createdAt === 'string') {
+    result.createdAt = meta.createdAt;
+  }
+  if (typeof meta.modifiedAt === 'string') {
+    result.modifiedAt = meta.modifiedAt;
+  }
+  if (typeof meta.app === 'string') {
+    result.app = meta.app;
+  }
+  return result;
+}
+
+function validateSavePayload(data) {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Save payload must be an object.');
+  }
+
+  const { width, height } = validateDimensions(data.width, data.height);
+  const pngBase64 = ensurePNGBase64(data.pngBase64);
+  const meta = sanitizeMeta(data.meta);
+  const saveAs = Boolean(data.saveAs);
+
+  return { width, height, pngBase64, meta, saveAs };
+}
 
 contextBridge.exposeInMainWorld('api', {
   async newDocument(width, height) {
@@ -36,20 +106,20 @@ contextBridge.exposeInMainWorld('api', {
       return { canceled: true, error: result?.error };
     }
 
-    try {
-      const document = decodeOCP(result.content);
-      return {
-        canceled: false,
-        filePath: result.filePath,
-        fileName: result.fileName,
-        width: document.width,
-        height: document.height,
-        pngBase64: document.pngBase64,
-        meta: document.meta
-      };
-    } catch (error) {
-      return { canceled: true, error: error.message };
+    const document = result.document;
+    if (!document || typeof document !== 'object') {
+      return { canceled: true, error: 'Invalid document payload.' };
     }
+
+    return {
+      canceled: false,
+      filePath: result.filePath,
+      fileName: result.fileName,
+      width: document.width,
+      height: document.height,
+      pngBase64: document.pngBase64,
+      meta: document.meta
+    };
   },
 
   async saveOCP(data) {
