@@ -1,4 +1,12 @@
-export const HANDLE_SIZE_PX = 10;
+import {
+  HANDLE_SIZE_PX,
+  ROTATE_HANDLE_RADIUS_PX,
+  getLayerCenter,
+  getResizeHandlesLocal,
+  getRotateHandlesLocal
+} from './geometry.js';
+
+const ROTATE_HANDLE_DIAMETER_PX = ROTATE_HANDLE_RADIUS_PX * 2;
 
 export function createCanvasController({ canvas, overlay, stage, viewport }) {
   if (!canvas || !overlay || !stage || !viewport) {
@@ -34,15 +42,61 @@ export function createCanvasController({ canvas, overlay, stage, viewport }) {
   function renderLayers(layers) {
     ctx.clearRect(0, 0, documentWidth, documentHeight);
     layers.forEach((layer) => {
-      if (layer.visible === false) {
+      if (layer.visible === false || !layer.image) {
         return;
       }
       const alpha = typeof layer.opacity === 'number' ? layer.opacity : 1;
+      const rotation = layer.rotation || 0;
+      const center = getLayerCenter(layer);
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.drawImage(layer.image, layer.x, layer.y, layer.width, layer.height);
+      ctx.translate(center.x, center.y);
+      ctx.rotate(rotation);
+      ctx.drawImage(layer.image, -layer.width / 2, -layer.height / 2, layer.width, layer.height);
       ctx.restore();
     });
+  }
+
+  function drawHandles(layer, { activeHandle } = {}) {
+    const center = getLayerCenter(layer);
+    const rotation = layer.rotation || 0;
+    const handleSize = HANDLE_SIZE_PX / zoom;
+    const rotateRadius = ROTATE_HANDLE_RADIUS_PX / zoom;
+    overlayCtx.save();
+    overlayCtx.translate(center.x, center.y);
+    overlayCtx.rotate(rotation);
+
+    overlayCtx.lineWidth = 1 / zoom;
+    overlayCtx.setLineDash([6 / zoom, 4 / zoom]);
+    overlayCtx.strokeStyle = '#4a90e2';
+    overlayCtx.strokeRect(-layer.width / 2, -layer.height / 2, layer.width, layer.height);
+    overlayCtx.setLineDash([]);
+
+    const halfHandle = handleSize / 2;
+    const resizeHandles = getResizeHandlesLocal(layer);
+    resizeHandles.forEach((handle) => {
+      overlayCtx.beginPath();
+      overlayCtx.rect(handle.x - halfHandle, handle.y - halfHandle, handleSize, handleSize);
+      const isActive = activeHandle === handle.key;
+      overlayCtx.fillStyle = isActive ? '#4a90e2' : '#0b1828';
+      overlayCtx.strokeStyle = isActive ? '#ffffff' : '#4a90e2';
+      overlayCtx.fill();
+      overlayCtx.stroke();
+    });
+
+    const rotateHandles = getRotateHandlesLocal(layer, zoom);
+    rotateHandles.forEach((handle) => {
+      overlayCtx.beginPath();
+      overlayCtx.arc(handle.x, handle.y, rotateRadius, 0, Math.PI * 2);
+      const isActive = activeHandle === handle.key;
+      overlayCtx.fillStyle = isActive ? '#ffffff' : '#4a90e2';
+      overlayCtx.strokeStyle = '#0b1828';
+      overlayCtx.lineWidth = 1 / zoom;
+      overlayCtx.fill();
+      overlayCtx.stroke();
+    });
+
+    overlayCtx.restore();
   }
 
   function drawOverlay(layers, { activeHandle = null } = {}) {
@@ -51,46 +105,9 @@ export function createCanvasController({ canvas, overlay, stage, viewport }) {
       return;
     }
 
-    overlayCtx.save();
-    overlayCtx.lineWidth = 1;
-    overlayCtx.setLineDash([6, 4]);
-    overlayCtx.strokeStyle = '#4a90e2';
-
     layers.forEach((layer) => {
-      overlayCtx.strokeRect(layer.x, layer.y, layer.width, layer.height);
+      drawHandles(layer, { activeHandle });
     });
-
-    overlayCtx.restore();
-
-    if (layers.length === 1) {
-      const layer = layers[0];
-      const handleSize = HANDLE_SIZE_PX / zoom;
-      const handles = [
-        { key: 'nw', x: layer.x, y: layer.y },
-        { key: 'n', x: layer.x + layer.width / 2, y: layer.y },
-        { key: 'ne', x: layer.x + layer.width, y: layer.y },
-        { key: 'e', x: layer.x + layer.width, y: layer.y + layer.height / 2 },
-        { key: 'se', x: layer.x + layer.width, y: layer.y + layer.height },
-        { key: 's', x: layer.x + layer.width / 2, y: layer.y + layer.height },
-        { key: 'sw', x: layer.x, y: layer.y + layer.height },
-        { key: 'w', x: layer.x, y: layer.y + layer.height / 2 }
-      ];
-
-      overlayCtx.save();
-      overlayCtx.lineWidth = 1 / zoom;
-
-      handles.forEach((handle) => {
-        const handleX = handle.x - handleSize / 2;
-        const handleY = handle.y - handleSize / 2;
-        overlayCtx.beginPath();
-        overlayCtx.rect(handleX, handleY, handleSize, handleSize);
-        overlayCtx.fillStyle = handle.key === activeHandle ? '#4a90e2' : '#0b1828';
-        overlayCtx.strokeStyle = handle.key === activeHandle ? '#ffffff' : '#4a90e2';
-        overlayCtx.fill();
-        overlayCtx.stroke();
-      });
-      overlayCtx.restore();
-    }
   }
 
   function getDocumentSize() {
@@ -100,11 +117,10 @@ export function createCanvasController({ canvas, overlay, stage, viewport }) {
   function setZoom(scale, focusPoint) {
     const nextZoom = Math.min(Math.max(scale, 0.05), 8);
     if (focusPoint) {
-      const { x, y } = focusPoint;
-      const screenX = x * zoom + panX;
-      const screenY = y * zoom + panY;
-      panX = screenX - x * nextZoom;
-      panY = screenY - y * nextZoom;
+      const screenX = focusPoint.x * zoom + panX;
+      const screenY = focusPoint.y * zoom + panY;
+      panX = screenX - focusPoint.x * nextZoom;
+      panY = screenY - focusPoint.y * nextZoom;
     }
     zoom = nextZoom;
     applyTransform();
@@ -151,9 +167,10 @@ export function createCanvasController({ canvas, overlay, stage, viewport }) {
 
   function screenToDocument(clientX, clientY) {
     const rect = overlay.getBoundingClientRect();
-    const x = (clientX - rect.left) / zoom;
-    const y = (clientY - rect.top) / zoom;
-    return { x, y };
+    return {
+      x: (clientX - rect.left) / zoom,
+      y: (clientY - rect.top) / zoom
+    };
   }
 
   function documentToScreen(x, y) {

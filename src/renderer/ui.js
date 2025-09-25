@@ -15,11 +15,10 @@ function createNotifier() {
   document.body.appendChild(element);
   let timeoutId = null;
 
-  function show(message, type = 'info', duration = 3500) {
+  function show(message, type = 'error', duration = 4500) {
     element.textContent = message;
     element.classList.add('visible');
     element.classList.toggle('error', type === 'error');
-    element.classList.toggle('success', type === 'success');
 
     if (timeoutId) {
       clearTimeout(timeoutId);
@@ -28,14 +27,11 @@ function createNotifier() {
     timeoutId = setTimeout(() => {
       element.classList.remove('visible');
       element.classList.remove('error');
-      element.classList.remove('success');
     }, duration);
   }
 
   return {
-    info: (message) => show(message, 'info'),
-    success: (message) => show(message, 'success'),
-    error: (message) => show(message, 'error', 4500)
+    error: (message) => show(message, 'error')
   };
 }
 
@@ -54,15 +50,10 @@ function generateLayerId() {
   return `layer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
 async function base64ToImageBitmap(base64) {
   const binary = atob(base64);
-  const length = binary.length;
-  const buffer = new Uint8Array(length);
-  for (let i = 0; i < length; i += 1) {
+  const buffer = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
     buffer[i] = binary.charCodeAt(i);
   }
   const blob = new Blob([buffer], { type: 'image/png' });
@@ -77,20 +68,6 @@ function isImageFile(file) {
   return ACCEPTED_IMAGE_TYPES.includes(file.type) || file.type.startsWith('image/');
 }
 
-function nearestZoomOption(value, options) {
-  let closest = options[0];
-  let smallestDiff = Math.abs(parseFloat(options[0]) - value);
-  for (let i = 1; i < options.length; i += 1) {
-    const candidate = parseFloat(options[i]);
-    const diff = Math.abs(candidate - value);
-    if (diff < smallestDiff) {
-      smallestDiff = diff;
-      closest = options[i];
-    }
-  }
-  return closest;
-}
-
 export function setupUI() {
   const canvasElement = document.getElementById('canvas');
   const overlayElement = document.getElementById('overlay');
@@ -102,17 +79,19 @@ export function setupUI() {
   const openButton = document.getElementById('btn-open');
   const saveButton = document.getElementById('btn-save');
   const exportButton = document.getElementById('btn-export');
-  const zoomSelect = document.getElementById('zoom-select');
   const toolList = document.getElementById('tool-list');
   const layerList = document.getElementById('layer-list');
-  const layerUpButton = document.getElementById('btn-layer-up');
-  const layerDownButton = document.getElementById('btn-layer-down');
   const leftPanel = document.querySelector('.left-panel');
 
   const notifier = createNotifier();
   const modalController = createModalController();
   const toolManager = createToolManager({ container: toolList });
   toolManager.setActive('transform');
+
+  if (!window.api) {
+    notifier.error('Bridge not available. Please restart the application.');
+    throw new Error('window.api is undefined');
+  }
 
   const store = createDocumentState();
   const canvasController = createCanvasController({
@@ -124,15 +103,9 @@ export function setupUI() {
 
   const layersPanel = createLayersPanel({
     listElement: layerList,
-    upButton: layerUpButton,
-    downButton: layerDownButton,
     store
   });
 
-  if (!window.api) {
-    notifier.error('Bridge not available. Please restart the application.');
-    throw new Error('window.api is undefined');
-  }
   createTransformController({
     overlay: overlayElement,
     store,
@@ -140,18 +113,19 @@ export function setupUI() {
     getActiveTool: () => toolManager.getActive()
   });
 
+  overlayElement.style.cursor = 'default';
+
   const appState = {
     fileName: 'No project',
     filePath: null,
     meta: createDocumentMeta(),
     hasDocument: false,
-    zoomMode: 'fit',
     busy: false
   };
 
   function setBusy(value) {
     appState.busy = value;
-    [newButton, openButton, saveButton, exportButton, zoomSelect].forEach((element) => {
+    [newButton, openButton, saveButton, exportButton].forEach((element) => {
       element.disabled = value;
     });
   }
@@ -175,34 +149,18 @@ export function setupUI() {
     return true;
   }
 
-  function refreshLayers() {
+  function refreshCanvas() {
     canvasController.renderLayers(store.getLayersRef());
+    updateOverlay();
     layersPanel.render();
-    canvasController.drawOverlay(store.getSelectedLayers());
   }
 
-  function updateOverlay() {
-    canvasController.drawOverlay(store.getSelectedLayers());
-  }
-
-  function updateZoomSelect() {
-    if (appState.zoomMode === 'fit') {
-      zoomSelect.value = 'fit';
-      return;
-    }
-    const zoomValue = canvasController.getZoom();
-    const numericOptions = Array.from(zoomSelect.options)
-      .map((option) => option.value)
-      .filter((value) => value !== 'fit');
-    const closest = nearestZoomOption(zoomValue, numericOptions);
-    zoomSelect.value = closest;
+  function updateOverlay(handle) {
+    canvasController.drawOverlay(store.getSelectedLayers(), { activeHandle: handle || null });
   }
 
   function fitAndCenter() {
-    const zoom = canvasController.fitToView();
-    appState.zoomMode = 'fit';
-    updateZoomSelect();
-    return zoom;
+    canvasController.fitToView();
   }
 
   function markDocumentModified() {
@@ -216,8 +174,8 @@ export function setupUI() {
     store.reset(width, height, []);
     canvasController.setDocumentSize(width, height);
     canvasController.renderLayers([]);
+    canvasController.drawOverlay([]);
     fitAndCenter();
-    updateOverlay();
     appState.hasDocument = true;
     appState.fileName = DEFAULT_FILE_NAME;
     appState.filePath = null;
@@ -238,7 +196,6 @@ export function setupUI() {
       }
       const response = await window.api.newDocument(dimensions.width, dimensions.height);
       initializeDocument(response.width, response.height);
-      notifier.success('New document created.');
     } catch (error) {
       console.error(error);
       notifier.error(error.message || 'Could not create document.');
@@ -272,16 +229,15 @@ export function setupUI() {
         x: 0,
         y: 0,
         opacity: 1,
-        visible: true
+        visible: true,
+        rotation: 0
       };
       store.addLayer(layer, { select: true, record: false });
-      canvasController.renderLayers(store.getLayersRef());
-      canvasController.drawOverlay(store.getSelectedLayers());
+      refreshCanvas();
       appState.fileName = result.fileName || DEFAULT_FILE_NAME;
       appState.filePath = result.filePath || null;
       appState.meta = createDocumentMeta(result.meta);
       updateTitle();
-      notifier.success(`Loaded ${appState.fileName}`);
     } catch (error) {
       console.error(error);
       notifier.error(error.message || 'Could not open project.');
@@ -321,7 +277,6 @@ export function setupUI() {
       appState.filePath = result.filePath;
       appState.fileName = result.fileName;
       updateTitle();
-      notifier.success(`Saved ${appState.fileName}`);
     } catch (error) {
       console.error(error);
       notifier.error(error.message || 'Could not save project.');
@@ -346,9 +301,7 @@ export function setupUI() {
         if (result?.error) {
           notifier.error(result.error);
         }
-        return;
       }
-      notifier.success('PNG exported.');
     } catch (error) {
       console.error(error);
       notifier.error(error.message || 'Could not export PNG.');
@@ -373,12 +326,11 @@ export function setupUI() {
       x: (width - bitmap.width) / 2,
       y: (height - bitmap.height) / 2,
       opacity: 1,
-      visible: true
+      visible: true,
+      rotation: 0
     };
     store.addLayer(layer, { select: true, record: true });
-    canvasController.renderLayers(store.getLayersRef());
-    canvasController.drawOverlay(store.getSelectedLayers());
-    notifier.success(`Added ${name}`);
+    refreshCanvas();
   }
 
   async function handleDroppedFiles(files) {
@@ -406,17 +358,18 @@ export function setupUI() {
 
   store.subscribe((detail) => {
     if (detail.type === 'layers' || detail.type === 'reset' || detail.type === 'snapshot' || detail.type === 'undo' || detail.type === 'redo') {
-      refreshLayers();
+      refreshCanvas();
       if (detail.type === 'layers') {
         markDocumentModified();
       }
     }
-    if (detail.type === 'selection' || detail.type === 'layers' || detail.type === 'reset' || detail.type === 'snapshot' || detail.type === 'undo' || detail.type === 'redo') {
+    if (detail.type === 'selection') {
+      layersPanel.render();
       updateOverlay();
     }
     if (detail.type === 'document-size') {
-      const { width, height } = store.getDocumentSize();
-      canvasController.setDocumentSize(width, height);
+      const size = store.getDocumentSize();
+      canvasController.setDocumentSize(size.width, size.height);
       fitAndCenter();
       updateOverlay();
     }
@@ -427,29 +380,10 @@ export function setupUI() {
   saveButton.addEventListener('click', () => handleSaveDocument({ saveAs: false }));
   exportButton.addEventListener('click', handleExportPNG);
 
-  zoomSelect.addEventListener('change', (event) => {
-    const value = event.target.value;
-    if (value === 'fit') {
-      fitAndCenter();
-      appState.zoomMode = 'fit';
-      return;
-    }
-    const targetZoom = parseFloat(value);
-    if (!Number.isFinite(targetZoom) || targetZoom <= 0) {
-      return;
-    }
-    const { width, height } = store.getDocumentSize();
-    const focusPoint = { x: width / 2, y: height / 2 };
-    canvasController.setZoom(targetZoom, focusPoint);
-    appState.zoomMode = 'fixed';
-    updateZoomSelect();
-  });
-
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Delete') {
       if (store.hasSelection()) {
         store.removeSelectedLayers();
-        notifier.info('Layer(s) removed.');
       }
       return;
     }
@@ -457,20 +391,16 @@ export function setupUI() {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
       event.preventDefault();
       if (event.shiftKey) {
-        if (!store.redo()) {
-          notifier.info('Nothing to redo.');
-        }
-      } else if (!store.undo()) {
-        notifier.info('Nothing to undo.');
+        store.redo();
+      } else {
+        store.undo();
       }
       return;
     }
 
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
       event.preventDefault();
-      if (!store.redo()) {
-        notifier.info('Nothing to redo.');
-      }
+      store.redo();
       return;
     }
 
@@ -489,6 +419,7 @@ export function setupUI() {
       pan: canvasController.getTransform()
     };
     viewportElement.setPointerCapture(event.pointerId);
+    viewportElement.style.cursor = 'grabbing';
   }
 
   function updatePan(event) {
@@ -498,7 +429,6 @@ export function setupUI() {
     const dx = event.clientX - panSession.startX;
     const dy = event.clientY - panSession.startY;
     canvasController.setPan(panSession.pan.panX + dx, panSession.pan.panY + dy);
-    appState.zoomMode = 'fixed';
   }
 
   function endPan(event) {
@@ -507,10 +437,11 @@ export function setupUI() {
     }
     try {
       viewportElement.releasePointerCapture(event.pointerId);
-    } catch (_) {
-      // Ignore release errors
+    } catch (error) {
+      // ignore pointer release errors
     }
     panSession = null;
+    viewportElement.style.cursor = 'default';
   }
 
   viewportElement.addEventListener('pointerdown', (event) => {
@@ -538,12 +469,8 @@ export function setupUI() {
     const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
     const focusPoint = canvasController.screenToDocument(event.clientX, event.clientY);
     const nextZoom = canvasController.getZoom() * zoomFactor;
-    canvasController.setZoom(clamp(nextZoom, 0.05, 8), focusPoint);
-    appState.zoomMode = 'fixed';
-    updateZoomSelect();
+    canvasController.setZoom(Math.min(Math.max(nextZoom, 0.05), 8), focusPoint);
   }, { passive: false });
-
-  const unsubscribeMenu = window.addEventListener ? null : null;
 
   window.addEventListener('app-menu', (event) => {
     const detail = event.detail || {};
@@ -567,5 +494,5 @@ export function setupUI() {
 
   layersPanel.render();
   updateTitle();
-  updateZoomSelect();
+  canvasController.drawOverlay([]);
 }

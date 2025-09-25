@@ -11,6 +11,16 @@ body {
   color: #f2f2f2;
 }
 
+body,
+body * {
+  user-select: none;
+}
+
+input,
+textarea {
+  user-select: text;
+}
+
 #app {
   display: flex;
   flex-direction: column;
@@ -47,8 +57,7 @@ body {
   gap: 0.5rem;
 }
 
-button,
-select {
+button {
   padding: 0.45rem 0.9rem;
   border-radius: 4px;
   border: 1px solid #434343;
@@ -59,8 +68,7 @@ select {
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-button:hover,
-select:hover {
+button:hover {
   background: #3f3f3f;
   border-color: #4a90e2;
 }
@@ -82,7 +90,7 @@ button.primary:hover {
 .main-layout {
   flex: 1;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 260px;
+  grid-template-columns: 220px minmax(0, 1fr) 240px;
   min-height: 0;
 }
 
@@ -111,6 +119,15 @@ button.primary:hover {
   color: #cfcfcf;
 }
 
+.tool-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .tool-button {
   width: 100%;
   text-align: left;
@@ -120,12 +137,6 @@ button.primary:hover {
   background: #4a90e2;
   border-color: #4a90e2;
   color: #0b1828;
-}
-
-.panel-hint {
-  font-size: 0.8rem;
-  color: #9c9c9c;
-  line-height: 1.4;
 }
 
 .workspace {
@@ -146,19 +157,20 @@ button.primary:hover {
   position: absolute;
   inset: 0;
   border: 2px dashed transparent;
-  pointer-events: auto;
+  pointer-events: none;
   transition: border-color 0.2s ease;
 }
 
-.viewport.drag-over::after {
+.viewport.drag-over::after,
+.left-panel.drag-over {
   border-color: #4a90e2;
 }
 
 #viewport-inner {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  top: 0;
+  left: 0;
+  transform-origin: top left;
 }
 
 #canvas-container {
@@ -185,6 +197,7 @@ canvas {
   position: absolute;
   inset: 0;
   pointer-events: auto;
+  touch-action: none;
 }
 
 .layer-list {
@@ -199,7 +212,7 @@ canvas {
 }
 
 .layer-list li {
-  padding: 0.5rem 0.75rem;
+  padding: 0.55rem 0.75rem;
   border-bottom: 1px solid #2a2a2a;
   cursor: pointer;
   display: flex;
@@ -217,33 +230,17 @@ canvas {
   color: #0b1828;
 }
 
-.layer-list span {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.layer-list li span.meta {
+  opacity: 0.7;
+  font-size: 0.75rem;
 }
 
-.layers-toolbar {
-  display: flex;
-  gap: 0.5rem;
+.layer-list li.drop-before {
+  border-top: 2px solid #4a90e2;
 }
 
-.layers-toolbar button {
-  flex: 1;
-  padding-inline: 0;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+.layer-list li.drop-after {
+  border-bottom: 2px solid #4a90e2;
 }
 
 .alert {
@@ -268,6 +265,76 @@ canvas {
   border-color: #ff6b6b;
 }
 
-.alert.success {
-  border-color: #3adb76;
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 2000;
+}
+
+.modal-overlay.visible {
+  display: flex;
+}
+
+.modal {
+  background: #2c2c2c;
+  border-radius: 8px;
+  padding: 1.5rem;
+  width: 320px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.modal h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+}
+
+.modal form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-field label {
+  font-size: 0.85rem;
+  color: #d7d7d7;
+}
+
+.form-field input {
+  padding: 0.45rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid #4a4a4a;
+  background: #1f1f1f;
+  color: #f2f2f2;
+  user-select: text;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

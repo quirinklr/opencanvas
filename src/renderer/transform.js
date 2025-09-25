@@ -1,51 +1,84 @@
-import { HANDLE_SIZE_PX } from './canvas.js';
+import {
+  HANDLE_SIZE_PX,
+  ROTATE_HANDLE_RADIUS_PX,
+  getLayerCenter,
+  getResizeHandlesLocal,
+  getRotateHandlesLocal,
+  normalizeRotation,
+  pointInLayer,
+  toLayerLocal
+} from './geometry.js';
 
 const MIN_LAYER_SIZE = 10;
 
-function pointInRect(point, rect) {
-  return (
-    point.x >= rect.x &&
-    point.x <= rect.x + rect.width &&
-    point.y >= rect.y &&
-    point.y <= rect.y + rect.height
-  );
-}
-
-function createHandleRects(layer, zoom) {
-  const size = HANDLE_SIZE_PX / zoom;
-  const half = size / 2;
-  const rects = [
-    { key: 'nw', x: layer.x, y: layer.y },
-    { key: 'n', x: layer.x + layer.width / 2, y: layer.y },
-    { key: 'ne', x: layer.x + layer.width, y: layer.y },
-    { key: 'e', x: layer.x + layer.width, y: layer.y + layer.height / 2 },
-    { key: 'se', x: layer.x + layer.width, y: layer.y + layer.height },
-    { key: 's', x: layer.x + layer.width / 2, y: layer.y + layer.height },
-    { key: 'sw', x: layer.x, y: layer.y + layer.height },
-    { key: 'w', x: layer.x, y: layer.y + layer.height / 2 }
-  ];
-  return rects.map((handle) => ({
-    key: handle.key,
-    x: handle.x - half,
-    y: handle.y - half,
-    width: size,
-    height: size
-  }));
-}
+const RESIZE_CURSOR_MAP = {
+  nw: 'nwse-resize',
+  se: 'nwse-resize',
+  ne: 'nesw-resize',
+  sw: 'nesw-resize',
+  n: 'ns-resize',
+  s: 'ns-resize',
+  e: 'ew-resize',
+  w: 'ew-resize'
+};
 
 function clampSize(value) {
   return Math.max(value, MIN_LAYER_SIZE);
 }
 
-function computeResize(handle, pointer, initial) {
-  const result = { x: initial.x, y: initial.y, width: initial.width, height: initial.height };
+function cursorForHandle(handleKey) {
+  if (!handleKey) {
+    return 'default';
+  }
+  if (handleKey.startsWith('rotate')) {
+    return 'crosshair';
+  }
+  return RESIZE_CURSOR_MAP[handleKey] || 'move';
+}
+
+function getHandleHit(layer, point, zoom) {
+  const localPoint = toLayerLocal(layer, point);
+  const handleSize = HANDLE_SIZE_PX / zoom;
+  const halfHandle = handleSize / 2;
+
+  const resizeHandles = getResizeHandlesLocal(layer);
+  for (const handle of resizeHandles) {
+    const hx = handle.x + layer.width / 2;
+    const hy = handle.y + layer.height / 2;
+    if (Math.abs(localPoint.x - hx) <= halfHandle && Math.abs(localPoint.y - hy) <= halfHandle) {
+      return { key: handle.key, type: 'resize', cursor: cursorForHandle(handle.key) };
+    }
+  }
+
+  const rotateHandles = getRotateHandlesLocal(layer, zoom);
+  const rotateRadius = ROTATE_HANDLE_RADIUS_PX / zoom;
+  for (const handle of rotateHandles) {
+    const hx = handle.x + layer.width / 2;
+    const hy = handle.y + layer.height / 2;
+    const distance = Math.hypot(localPoint.x - hx, localPoint.y - hy);
+    if (distance <= rotateRadius) {
+      return { key: handle.key, type: 'rotate', cursor: cursorForHandle(handle.key) };
+    }
+  }
+
+  return null;
+}
+
+function computeResizeLocal(handle, pointerLocal, initial) {
+  const result = {
+    x: initial.x,
+    y: initial.y,
+    width: initial.width,
+    height: initial.height
+  };
+
   const right = initial.x + initial.width;
   const bottom = initial.y + initial.height;
 
   switch (handle) {
     case 'nw': {
-      const nextX = Math.min(pointer.x, right - MIN_LAYER_SIZE);
-      const nextY = Math.min(pointer.y, bottom - MIN_LAYER_SIZE);
+      const nextX = Math.min(pointerLocal.x, right - MIN_LAYER_SIZE);
+      const nextY = Math.min(pointerLocal.y, bottom - MIN_LAYER_SIZE);
       result.width = clampSize(right - nextX);
       result.height = clampSize(bottom - nextY);
       result.x = right - result.width;
@@ -53,46 +86,46 @@ function computeResize(handle, pointer, initial) {
       break;
     }
     case 'n': {
-      const nextY = Math.min(pointer.y, bottom - MIN_LAYER_SIZE);
+      const nextY = Math.min(pointerLocal.y, bottom - MIN_LAYER_SIZE);
       result.height = clampSize(bottom - nextY);
       result.y = bottom - result.height;
       break;
     }
     case 'ne': {
-      const nextY = Math.min(pointer.y, bottom - MIN_LAYER_SIZE);
-      const nextX = Math.max(pointer.x, initial.x + MIN_LAYER_SIZE);
+      const nextX = Math.max(pointerLocal.x, initial.x + MIN_LAYER_SIZE);
+      const nextY = Math.min(pointerLocal.y, bottom - MIN_LAYER_SIZE);
+      result.width = clampSize(nextX - initial.x);
       result.height = clampSize(bottom - nextY);
       result.y = bottom - result.height;
-      result.width = clampSize(nextX - initial.x);
       break;
     }
     case 'e': {
-      const nextX = Math.max(pointer.x, initial.x + MIN_LAYER_SIZE);
+      const nextX = Math.max(pointerLocal.x, initial.x + MIN_LAYER_SIZE);
       result.width = clampSize(nextX - initial.x);
       break;
     }
     case 'se': {
-      const nextX = Math.max(pointer.x, initial.x + MIN_LAYER_SIZE);
-      const nextY = Math.max(pointer.y, initial.y + MIN_LAYER_SIZE);
+      const nextX = Math.max(pointerLocal.x, initial.x + MIN_LAYER_SIZE);
+      const nextY = Math.max(pointerLocal.y, initial.y + MIN_LAYER_SIZE);
       result.width = clampSize(nextX - initial.x);
       result.height = clampSize(nextY - initial.y);
       break;
     }
     case 's': {
-      const nextY = Math.max(pointer.y, initial.y + MIN_LAYER_SIZE);
+      const nextY = Math.max(pointerLocal.y, initial.y + MIN_LAYER_SIZE);
       result.height = clampSize(nextY - initial.y);
       break;
     }
     case 'sw': {
-      const nextX = Math.min(pointer.x, right - MIN_LAYER_SIZE);
-      const nextY = Math.max(pointer.y, initial.y + MIN_LAYER_SIZE);
+      const nextX = Math.min(pointerLocal.x, right - MIN_LAYER_SIZE);
+      const nextY = Math.max(pointerLocal.y, initial.y + MIN_LAYER_SIZE);
       result.width = clampSize(right - nextX);
-      result.x = right - result.width;
       result.height = clampSize(nextY - initial.y);
+      result.x = right - result.width;
       break;
     }
     case 'w': {
-      const nextX = Math.min(pointer.x, right - MIN_LAYER_SIZE);
+      const nextX = Math.min(pointerLocal.x, right - MIN_LAYER_SIZE);
       result.width = clampSize(right - nextX);
       result.x = right - result.width;
       break;
@@ -110,38 +143,13 @@ export function createTransformController({ overlay, store, canvasController, ge
   }
 
   let operation = null;
+  let hoverHandle = null;
 
-  function getLayersRef() {
-    return store.getLayersRef();
+  function setOverlayCursor(value) {
+    overlay.style.cursor = value;
   }
 
-  function hitTestLayers(point, { onlySelected = false } = {}) {
-    const layers = getLayersRef();
-    for (let i = layers.length - 1; i >= 0; i -= 1) {
-      const layer = layers[i];
-      if (onlySelected && !store.getSelection().has(layer.id)) {
-        continue;
-      }
-      const rect = {
-        x: layer.x,
-        y: layer.y,
-        width: layer.width,
-        height: layer.height
-      };
-      if (pointInRect(point, rect)) {
-        return layer;
-      }
-    }
-    return null;
-  }
-
-  function detectHandle(point, layer) {
-    const zoom = canvasController.getZoom();
-    const handles = createHandleRects(layer, zoom);
-    return handles.find((handle) => pointInRect(point, handle));
-  }
-
-  function updateOverlay(activeHandle) {
+  function updateOverlay(activeHandle = null) {
     const selectedLayers = store.getSelectedLayers();
     canvasController.drawOverlay(selectedLayers, { activeHandle });
   }
@@ -162,37 +170,90 @@ export function createTransformController({ overlay, store, canvasController, ge
         y: layer.y
       }))
     };
+    setOverlayCursor('grabbing');
   }
 
-  function beginResize(pointerId, startPoint, layer, handleKey) {
+  function beginResize(pointerId, startPoint, layer, handle) {
     store.commit();
     overlay.setPointerCapture(pointerId);
     operation = {
       type: 'resize',
       pointerId,
       startPoint,
-      layerId: layer.id,
-      handle: handleKey,
+      handle,
       initial: {
+        id: layer.id,
         x: layer.x,
         y: layer.y,
         width: layer.width,
-        height: layer.height
+        height: layer.height,
+        rotation: layer.rotation || 0
       }
     };
-    updateOverlay(handleKey);
+    setOverlayCursor(cursorForHandle(handle));
+    updateOverlay(handle);
+  }
+
+  function beginRotate(pointerId, startPoint, layer, handle) {
+    store.commit();
+    overlay.setPointerCapture(pointerId);
+    const center = getLayerCenter(layer);
+    operation = {
+      type: 'rotate',
+      pointerId,
+      handle,
+      center,
+      startAngle: Math.atan2(startPoint.y - center.y, startPoint.x - center.x),
+      initialRotation: layer.rotation || 0,
+      layerId: layer.id
+    };
+    setOverlayCursor('crosshair');
+    updateOverlay(handle);
   }
 
   function finishOperation() {
     if (operation) {
       try {
         overlay.releasePointerCapture(operation.pointerId);
-      } catch (_) {
-        // Ignore release errors (e.g. pointer already released)
+      } catch (error) {
+        // ignore pointer release errors
       }
     }
     operation = null;
+    hoverHandle = null;
+    setOverlayCursor('default');
     updateOverlay(null);
+  }
+
+  function handleSelection(point, event) {
+    const layers = store.getLayersRef();
+    for (let i = layers.length - 1; i >= 0; i -= 1) {
+      const layer = layers[i];
+      if (!pointInLayer(layer, point)) {
+        continue;
+      }
+
+      const alreadySelected = store.getSelection().has(layer.id);
+      if (!alreadySelected) {
+        if (event.shiftKey) {
+          store.selectLayer(layer.id, { mode: 'range' });
+        } else if (event.ctrlKey || event.metaKey) {
+          store.selectLayer(layer.id, { mode: 'toggle' });
+        } else {
+          store.selectLayer(layer.id, { mode: 'single' });
+        }
+      }
+
+      const selectedLayers = store.getSelectedLayers();
+      beginMove(event.pointerId, point, selectedLayers);
+      updateOverlay(null);
+      return;
+    }
+
+    if (!event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      store.clearSelection();
+      updateOverlay(null);
+    }
   }
 
   function onPointerDown(event) {
@@ -206,47 +267,66 @@ export function createTransformController({ overlay, store, canvasController, ge
 
     const point = canvasController.screenToDocument(event.clientX, event.clientY);
     const selected = store.getSelectedLayers();
+    const zoom = canvasController.getZoom();
 
     if (selected.length === 1) {
-      const handle = detectHandle(point, selected[0]);
-      if (handle) {
-        beginResize(event.pointerId, point, selected[0], handle.key);
+      const layer = selected[0];
+      const handleHit = getHandleHit(layer, point, zoom);
+      if (handleHit) {
+        if (handleHit.type === 'rotate') {
+          beginRotate(event.pointerId, point, layer, handleHit.key);
+        } else {
+          beginResize(event.pointerId, point, layer, handleHit.key);
+        }
+        event.preventDefault();
+        return;
+      }
+
+      if (pointInLayer(layer, point)) {
+        beginMove(event.pointerId, point, selected);
+        updateOverlay(null);
         event.preventDefault();
         return;
       }
     }
 
-    const layerUnderPointer = hitTestLayers(point);
-
-    if (!layerUnderPointer) {
-      if (!event.shiftKey && !event.ctrlKey && !event.metaKey) {
-        store.clearSelection();
-        updateOverlay(null);
-      }
-      return;
-    }
-
-    const selectionHasLayer = store.getSelection().has(layerUnderPointer.id);
-    if (!selectionHasLayer) {
-      if (event.shiftKey) {
-        store.selectLayer(layerUnderPointer.id, { mode: 'range' });
-      } else if (event.ctrlKey || event.metaKey) {
-        store.selectLayer(layerUnderPointer.id, { mode: 'toggle' });
-      } else {
-        store.selectLayer(layerUnderPointer.id, { mode: 'single' });
-      }
-    }
-
-    const nextSelected = store.getSelectedLayers();
-    beginMove(event.pointerId, point, nextSelected);
+    handleSelection(point, event);
     event.preventDefault();
   }
 
   function onPointerMove(event) {
+    const point = canvasController.screenToDocument(event.clientX, event.clientY);
+
     if (!operation) {
+      const selected = store.getSelectedLayers();
+      if (selected.length === 1 && getActiveTool() === 'transform') {
+        const layer = selected[0];
+        const handleHit = getHandleHit(layer, point, canvasController.getZoom());
+        const nextHandle = handleHit?.key || null;
+        if (nextHandle !== hoverHandle) {
+          hoverHandle = nextHandle;
+          updateOverlay(hoverHandle);
+        }
+        if (handleHit) {
+          setOverlayCursor(handleHit.cursor);
+        } else if (pointInLayer(layer, point)) {
+          setOverlayCursor('move');
+        } else {
+          setOverlayCursor('default');
+        }
+      } else {
+        if (hoverHandle) {
+          hoverHandle = null;
+          updateOverlay(null);
+        }
+        setOverlayCursor('default');
+      }
       return;
     }
-    const point = canvasController.screenToDocument(event.clientX, event.clientY);
+
+    if (event.pointerId !== operation.pointerId) {
+      return;
+    }
 
     if (operation.type === 'move') {
       const dx = point.x - operation.startPoint.x;
@@ -260,10 +340,58 @@ export function createTransformController({ overlay, store, canvasController, ge
           y: origin.y + dy
         };
       }, { record: false });
-      updateOverlay(null);
-    } else if (operation.type === 'resize') {
-      const result = computeResize(operation.handle, point, operation.initial);
-      store.updateLayers(operation.layerId, () => result, { record: false });
+      setOverlayCursor('grabbing');
+      updateOverlay(operation.handle || null);
+      return;
+    }
+
+    if (operation.type === 'resize') {
+      const initial = operation.initial;
+      const center = {
+        x: initial.x + initial.width / 2,
+        y: initial.y + initial.height / 2
+      };
+      const rotation = initial.rotation || 0;
+      const cos = Math.cos(-rotation);
+      const sin = Math.sin(-rotation);
+      const translatedX = point.x - center.x;
+      const translatedY = point.y - center.y;
+      const localPointer = {
+        x: translatedX * cos - translatedY * sin + initial.width / 2,
+        y: translatedX * sin + translatedY * cos + initial.height / 2
+      };
+
+      const result = computeResizeLocal(operation.handle, localPointer, {
+        x: 0,
+        y: 0,
+        width: initial.width,
+        height: initial.height
+      });
+
+      const deltaX = result.x;
+      const deltaY = result.y;
+      const cosForward = Math.cos(rotation);
+      const sinForward = Math.sin(rotation);
+      const nextX = initial.x + deltaX * cosForward - deltaY * sinForward;
+      const nextY = initial.y + deltaX * sinForward + deltaY * cosForward;
+
+      store.updateLayers(initial.id, () => ({
+        x: nextX,
+        y: nextY,
+        width: result.width,
+        height: result.height
+      }), { record: false });
+      setOverlayCursor(cursorForHandle(operation.handle));
+      updateOverlay(operation.handle);
+      return;
+    }
+
+    if (operation.type === 'rotate') {
+      const currentAngle = Math.atan2(point.y - operation.center.y, point.x - operation.center.x);
+      const delta = currentAngle - operation.startAngle;
+      const nextRotation = normalizeRotation(operation.initialRotation + delta);
+      store.updateLayers(operation.layerId, () => ({ rotation: nextRotation }), { record: false });
+      setOverlayCursor('crosshair');
       updateOverlay(operation.handle);
     }
   }

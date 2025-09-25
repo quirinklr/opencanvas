@@ -22,6 +22,7 @@ export function createModalController() {
     }
 
     overlay.removeAttribute('hidden');
+    overlay.style.display = 'none';
     document.body.appendChild(overlay);
 
     form = overlay.querySelector('#new-document-form');
@@ -69,6 +70,7 @@ export function createModalController() {
     heightInput.value = String(defaultHeight);
 
     overlay.classList.add('visible');
+    overlay.style.display = 'flex';
     overlay.removeAttribute('hidden');
 
     requestAnimationFrame(() => {
@@ -79,6 +81,7 @@ export function createModalController() {
 
   function hide() {
     overlay.classList.remove('visible');
+    overlay.style.display = 'none';
     overlay.setAttribute('hidden', 'hidden');
   }
 

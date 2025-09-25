@@ -1,7 +1,19 @@
 import { createHistory } from './history.js';
 
+function normalizeLayer(layer) {
+  const rotation = Number.isFinite(layer.rotation) ? layer.rotation : 0;
+  const opacity = Number.isFinite(layer.opacity) ? layer.opacity : 1;
+  const visible = layer.visible !== false;
+  return {
+    ...layer,
+    rotation,
+    opacity,
+    visible
+  };
+}
+
 function cloneLayer(layer) {
-  return { ...layer };
+  return normalizeLayer(layer);
 }
 
 function buildSnapshot({ width, height, layers, selection, anchorId }) {
@@ -47,6 +59,10 @@ export function createDocumentState() {
     return () => listeners.delete(listener);
   }
 
+  function getLayerIndex(id) {
+    return layers.findIndex((layer) => layer.id === id);
+  }
+
   function setDocumentSize(newWidth, newHeight, { record = true } = {}) {
     if (record) {
       history.commit(snapshot());
@@ -87,13 +103,14 @@ export function createDocumentState() {
       history.commit(snapshot());
     }
     const newLayer = cloneLayer(layer);
-    if (position < 0) {
-      position = 0;
+    let insertIndex = position;
+    if (insertIndex < 0) {
+      insertIndex = 0;
     }
-    if (position > layers.length) {
-      position = layers.length;
+    if (insertIndex > layers.length) {
+      insertIndex = layers.length;
     }
-    layers.splice(position, 0, newLayer);
+    layers.splice(insertIndex, 0, newLayer);
     if (select) {
       selection = new Set([newLayer.id]);
       anchorId = newLayer.id;
@@ -103,6 +120,9 @@ export function createDocumentState() {
 
   function updateLayers(ids, updater, { record = true } = {}) {
     const targetIds = Array.isArray(ids) ? ids : [ids];
+    if (targetIds.length === 0) {
+      return;
+    }
     if (record) {
       history.commit(snapshot());
     }
@@ -111,8 +131,8 @@ export function createDocumentState() {
       if (!targetIds.includes(layer.id)) {
         return layer;
       }
-      const updates = updater(layer);
-      return { ...layer, ...updates };
+      const updates = updater(layer) || {};
+      return cloneLayer({ ...layer, ...updates });
     });
 
     notify({ type: 'layers' });
@@ -126,17 +146,18 @@ export function createDocumentState() {
     if (record) {
       history.commit(snapshot());
     }
+
     layers = layers.filter((layer) => !targetIds.includes(layer.id));
-    let changed = false;
+    let selectionChanged = false;
     targetIds.forEach((id) => {
       if (selection.delete(id)) {
-        changed = true;
+        selectionChanged = true;
       }
       if (anchorId === id) {
         anchorId = null;
       }
     });
-    if (changed) {
+    if (selectionChanged) {
       notify({ type: 'selection' });
     }
     notify({ type: 'layers' });
@@ -150,10 +171,6 @@ export function createDocumentState() {
     selection.clear();
     anchorId = null;
     notify({ type: 'selection' });
-  }
-
-  function getLayerIndex(id) {
-    return layers.findIndex((layer) => layer.id === id);
   }
 
   function moveLayers(offset) {
@@ -185,6 +202,49 @@ export function createDocumentState() {
         layers.splice(index - 1, 0, layer);
       }
     }
+    notify({ type: 'layers' });
+  }
+
+  function reorderLayer(draggedId, targetId, position = 'before', { record = true } = {}) {
+    if (!draggedId || draggedId === targetId) {
+      return;
+    }
+    const byId = new Map(layers.map((layer) => [layer.id, layer]));
+    if (!byId.has(draggedId)) {
+      return;
+    }
+    if (targetId && !byId.has(targetId)) {
+      return;
+    }
+
+    const uiOrder = layers.map((layer) => layer.id).reverse();
+    const fromIndex = uiOrder.indexOf(draggedId);
+    if (fromIndex === -1) {
+      return;
+    }
+    uiOrder.splice(fromIndex, 1);
+
+    let insertIndex = uiOrder.length;
+    if (targetId) {
+      const targetIndex = uiOrder.indexOf(targetId);
+      if (targetIndex !== -1) {
+        insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+      }
+    }
+    if (insertIndex < 0) {
+      insertIndex = 0;
+    }
+    if (insertIndex > uiOrder.length) {
+      insertIndex = uiOrder.length;
+    }
+    uiOrder.splice(insertIndex, 0, draggedId);
+
+    if (record) {
+      history.commit(snapshot());
+    }
+
+    const newOrderIds = uiOrder.slice().reverse();
+    layers = newOrderIds.map((id) => byId.get(id));
     notify({ type: 'layers' });
   }
 
@@ -316,6 +376,7 @@ export function createDocumentState() {
     removeLayers,
     removeSelectedLayers,
     moveLayers,
+    reorderLayer,
     clearSelection,
     setSelection,
     selectLayer,

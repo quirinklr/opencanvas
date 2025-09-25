@@ -19,28 +19,16 @@
         <button id="btn-open">Open</button>
         <button id="btn-save">Save</button>
         <button id="btn-export">Export PNG</button>
-        <label for="zoom-select" class="sr-only">Zoom</label>
-        <select id="zoom-select">
-          <option value="fit">Fit</option>
-          <option value="0.25">25%</option>
-          <option value="0.5">50%</option>
-          <option value="1" selected>100%</option>
-          <option value="2">200%</option>
-          <option value="4">400%</option>
-        </select>
       </div>
     </header>
     <div class="main-layout">
-      <aside class="side-panel left-panel" aria-label="Tools">
+      <aside class="side-panel left-panel" aria-label="Tools" data-dropzone>
         <h2>Tools</h2>
-        <ul id="tool-list">
+        <ul id="tool-list" class="tool-list">
           <li>
             <button class="tool-button active" data-tool="transform" title="Transform (V)">Transform</button>
           </li>
         </ul>
-        <div class="panel-hint">
-          Drag images here or into the canvas area to add layers.
-        </div>
       </aside>
       <section class="workspace" id="workspace">
         <div id="viewport" class="viewport" data-dropzone>
@@ -56,15 +44,7 @@
       </section>
       <aside class="side-panel right-panel" aria-label="Layers">
         <h2>Layers</h2>
-        <div class="layers-toolbar">
-          <button id="btn-layer-up" title="Move layer up">&#9650;</button>
-          <button id="btn-layer-down" title="Move layer down">&#9660;</button>
-        </div>
         <ul id="layer-list" class="layer-list" tabindex="0" aria-multiselectable="true"></ul>
-        <div class="panel-hint">
-          Use Ctrl/Shift to select multiple layers.
-          Press Delete to remove selected layers.
-        </div>
       </aside>
     </div>
   </div>
