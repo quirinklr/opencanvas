@@ -26,16 +26,47 @@
           <option value="0.5">50%</option>
           <option value="1" selected>100%</option>
           <option value="2">200%</option>
+          <option value="4">400%</option>
         </select>
       </div>
     </header>
-    <main class="workspace" id="workspace">
-      <div id="canvas-container">
-        <div id="canvas-stage" class="checkerboard">
-          <canvas id="canvas" width="0" height="0"></canvas>
+    <div class="main-layout">
+      <aside class="side-panel left-panel" aria-label="Tools">
+        <h2>Tools</h2>
+        <ul id="tool-list">
+          <li>
+            <button class="tool-button active" data-tool="transform" title="Transform (V)">Transform</button>
+          </li>
+        </ul>
+        <div class="panel-hint">
+          Drag images here or into the canvas area to add layers.
         </div>
-      </div>
-    </main>
+      </aside>
+      <section class="workspace" id="workspace">
+        <div id="viewport" class="viewport" data-dropzone>
+          <div id="viewport-inner">
+            <div id="canvas-container">
+              <div id="canvas-stage" class="checkerboard">
+                <canvas id="canvas" width="0" height="0"></canvas>
+                <canvas id="overlay" class="interaction-layer" width="0" height="0"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <aside class="side-panel right-panel" aria-label="Layers">
+        <h2>Layers</h2>
+        <div class="layers-toolbar">
+          <button id="btn-layer-up" title="Move layer up">&#9650;</button>
+          <button id="btn-layer-down" title="Move layer down">&#9660;</button>
+        </div>
+        <ul id="layer-list" class="layer-list" tabindex="0" aria-multiselectable="true"></ul>
+        <div class="panel-hint">
+          Use Ctrl/Shift to select multiple layers.
+          Press Delete to remove selected layers.
+        </div>
+      </aside>
+    </div>
   </div>
   <script type="module" src="renderer.js"></script>
 </body>
