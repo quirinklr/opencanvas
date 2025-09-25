@@ -1,0 +1,143 @@
+Erstelle ein lauffähiges Electron-Projekt namens **OpenCanvas** (Electron + Node.js, Plain JS, HTML, CSS). Implementiere **Main/Renderer/Preload** mit **IPC** und sicherer Konfiguration (contextIsolation: true, sandbox: true, nodeIntegration: false). Keine externen UI-Frameworks. Nutze NPM-Scripts zum Starten.
+
+## Funktionen (MVP)
+
+1. **Neue Datei**
+
+   * Dialog (Modal) im Renderer: Eingabe **Breite** und **Höhe** in Pixel (Integer, min 1, max 16384).
+   * Erzeugt eine leere **RGBA**-Canvas im Renderer mit der gewählten Größe.
+   * Der Fenster-Titel zeigt „*untitled.ocp*“ bis gespeichert.
+
+2. **Eigenes Dateiformat: `.ocp` (OpenCanvas Project)**
+
+   * JSON-basiert (UTF-8):
+
+     ```json
+     {
+       "format": "OCP-1",
+       "version": 1,
+       "width": <int>,
+       "height": <int>,
+       "colorSpace": "sRGB",
+       "compression": "png",
+       "payload": "<base64-encoded PNG of the current canvas bitmap>",
+       "meta": {
+         "createdAt": "<ISO8601>",
+         "modifiedAt": "<ISO8601>",
+         "app": "OpenCanvas"
+       }
+     }
+     ```
+   * Beim **Speichern** wird die aktuelle Canvas als PNG (lossless) in `payload` base64-kodiert, Breite/Höhe/Metadaten werden gesetzt.
+   * Beim **Öffnen**: JSON lesen, Validierung (`format === "OCP-1"`, `version === 1`, gültige `width/height`), PNG aus `payload` dekodieren, auf Canvas zeichnen, Canvas-Größe übernehmen.
+
+3. **Datei-Operationen**
+
+   * **Datei > Neu…**: Öffnet Größen-Modal.
+   * **Datei > Öffnen…**: Systemdialog, Filter auf `*.ocp`, lädt State in die Canvas.
+   * **Datei > Speichern** / **Speichern unter…**: Systemdialog, Filter `*.ocp`, schreibt JSON wie oben, aktualisiert Fenster-Titel.
+   * Optional: **PNG-Export** (**Datei > Export als PNG…**) für schnellen Bildexport.
+
+4. **Sichere IPC-Bridge (Preload)**
+
+   * Exponiere in `window.api` nur die benötigten, typsicheren Methoden:
+
+     * `newDocument(width, height)`
+     * `openOCP() -> { width, height, imageBitmap | ImageData }`
+     * `saveOCP(data: { width, height, pngBase64, meta? })`
+     * `exportPNG(pngBase64)`
+   * Implementiere die Dateidialoge und FS-Operationen **im Main-Prozess**; der Renderer sendet nur strukturierte Requests.
+   * Input-Validierung im Preload/Main (Breite/Höhe, Dateiendungen, JSON-Schema minimal prüfen).
+
+5. **UI (Renderer)**
+
+   * Minimaler Top-Bar-Header mit App-Name und Dateiname.
+   * Buttons: **Neu**, **Öffnen**, **Speichern**, **Export PNG**.
+   * Größen-Modal mit Formular (Breite/Höhe), OK/Abbrechen.
+   * Canvas-Element füllt die Arbeitsfläche, Hintergrund-Schachbrett (transparent-Look) via CSS.
+   * Zoom per Dropdown (25%/50%/100%/200%) und Fit-to-Window.
+   * Kein Zeichen-Tool nötig (MVP), nur Anzeige & Dateifluss.
+
+## Projektstruktur
+
+```
+open-canvas/
+  package.json
+  src/
+    main/
+      main.js
+      menu.js
+    preload/
+      preload.js
+      schema.js
+    renderer/
+      index.html
+      styles.css
+      renderer.js
+      ui.js
+      canvas.js
+      modal.html
+      modal.js
+    shared/
+      ocp.js        // encode/decode: OCP-1 <-> Canvas PNG base64
+  assets/
+    icon.png
+```
+
+## Technische Details
+
+* **Main (main.js)**
+
+  * Erzeugt ein `BrowserWindow` (min 1024×700), `contextIsolation: true`, `sandbox: true`, `preload: <path>`.
+  * Registriert IPC-Handler:
+
+    * `dialog:openOCP` → zeigt Open-Dialog, liest Datei, gibt JSON-String zurück.
+    * `dialog:saveOCP` → zeigt Save-Dialog (Default-Ext `.ocp`), schreibt Datei.
+    * `dialog:exportPNG` → Save-Dialog `.png`, schreibt PNG.
+  * Native Menüeinträge (Datei > Neu/Öffnen/Speichern/Export/Beenden) rufen die gleichen IPC-Kanäle auf.
+
+* **Preload (preload.js)**
+
+  * `contextBridge.exposeInMainWorld('api', {...})` mit oben genannten Methoden.
+  * Validierung der Parameter, channel-Whitelist.
+  * Rückgaben werden in sinnvolle Objekte gewandelt (z. B. `ImageBitmap` via `createImageBitmap` im Renderer nach PNG-Dekodierung).
+
+* **Renderer**
+
+  * `renderer.js` initialisiert UI, lädt `ui.js` und `canvas.js`.
+  * `canvas.js` kapselt Canvas-Setup, Resize, Draw aus `ImageBitmap`.
+  * `ui.js` verdrahtet Buttons/Modal, ruft `window.api.*`.
+  * Beim Speichern: Canvas → `toDataURL('image/png')` → Base64 (ohne Header), übergibt `{ width, height, pngBase64 }` an `saveOCP`.
+
+* **shared/ocp.js**
+
+  * `encodeOCP({ width, height, pngBase64, meta? }) -> string`
+  * `decodeOCP(jsonString) -> { width, height, pngBase64, meta }`
+  * Leichte Schema-Prüfung (format/version).
+
+* **styles.css**
+
+  * Schachbrett-Background via CSS-Gradients.
+  * Responsives Layout (Header fix, Canvas flex).
+
+## Sicherheit & Qualität
+
+* Kein ungeschützter `eval`, keine Remote-URLs.
+* IPC-Kanäle strikt benannt; Renderer hat keinen direkten FS-Zugriff.
+* Fehlerfälle: Dialog abgebrochen, ungültige Datei, Schemafehler → UI-Toast/Alert.
+
+## package.json (Anforderungen)
+
+* Scripts:
+
+  * `"start": "electron ."`
+  * `"dev": "electronmon ."` (optional) oder `"build"` wenn electron-builder integriert werden soll.
+* Dependencies: `electron` (devDependency), keine weiteren Libraries nötig.
+
+## Akzeptanzkriterien (kurzer Testplan)
+
+* App startet, zeigt leere Arbeitsfläche mit Header.
+* „Neu…“ öffnet Modal, Eingabe 1920×1080 erzeugt Canvas in dieser Größe; Zoom/Anpassung funktionieren.
+* „Speichern“ erzeugt `.ocp` mit korrekt gefülltem JSON.
+* „Öffnen…“ lädt `.ocp` zurück und setzt Canvas-Größe/Bild korrekt.
+* „Export PNG…“ speichert korrektes PNG der aktuellen Canvas.
