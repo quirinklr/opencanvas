@@ -4,8 +4,7 @@
   "description": "OpenCanvas Electron application",
   "main": "src/main/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electronmon ."
+    "start": "electron ."
   },
   "keywords": [
     "electron",
@@ -13,8 +12,7 @@
   ],
   "author": "",
   "license": "MIT",
-  "devDependencies": {
-    "electron": "^30.0.0",
-    "electronmon": "^1.6.0"
+  "dependencies": {
+    "electron": "^38.1.2"
   }
 }

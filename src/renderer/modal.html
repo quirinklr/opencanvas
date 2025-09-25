@@ -1,0 +1,19 @@
+<div class="modal-overlay" data-modal hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h2 id="modal-title">New Document</h2>
+    <form id="new-document-form">
+      <div class="form-field">
+        <label for="modal-width">Width (px)</label>
+        <input type="number" id="modal-width" name="width" min="1" max="16384" required />
+      </div>
+      <div class="form-field">
+        <label for="modal-height">Height (px)</label>
+        <input type="number" id="modal-height" name="height" min="1" max="16384" required />
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="modal-cancel">Cancel</button>
+        <button type="submit" class="primary">Create</button>
+      </div>
+    </form>
+  </div>
+</div>

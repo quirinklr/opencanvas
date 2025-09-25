@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenCanvas</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="top-bar">
+      <div class="title-group">
+        <span class="app-name">OpenCanvas</span>
+        <span class="file-name" id="file-name">untitled.ocp</span>
+      </div>
+      <div class="action-group">
+        <button id="btn-new" class="primary">New</button>
+        <button id="btn-open">Open</button>
+        <button id="btn-save">Save</button>
+        <button id="btn-export">Export PNG</button>
+        <label for="zoom-select" class="sr-only">Zoom</label>
+        <select id="zoom-select">
+          <option value="fit">Fit</option>
+          <option value="0.25">25%</option>
+          <option value="0.5">50%</option>
+          <option value="1" selected>100%</option>
+          <option value="2">200%</option>
+        </select>
+      </div>
+    </header>
+    <main class="workspace" id="workspace">
+      <div id="canvas-container">
+        <div id="canvas-stage" class="checkerboard">
+          <canvas id="canvas" width="0" height="0"></canvas>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="renderer.js"></script>
+</body>
+</html>
